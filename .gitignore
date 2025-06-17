@@ -1,1 +1,32 @@
-notes.txt
+# Go binaries
+/bin/
+/obj/
+
+# Go workspace files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Vendor directory
+/vendor/
+
+# Go module files
+go.sum
+go.mod
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
