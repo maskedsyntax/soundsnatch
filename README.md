@@ -1,5 +1,5 @@
 
-# YouTube Audio Downloader
+# SoundSnatch
 Download Songs, Podcasts and other audio files from Youtube. 🎵
 <hr>
 This repository contains a Python script that allows you to download audio from YouTube videos and save it as an MP3 file on your local machine. The script leverages the `yt_dlp` library, which is a fork of the popular `youtube-dl` with additional features and improvements.
@@ -29,8 +29,8 @@ pip install yt-dlp
 1. **Clone the Repository**:
 
    ```bash
-   git clone https://github.com/Aftaab25/youtube-audio-downloader.git
-   cd youtube-audio-downloader
+   git clone https://github.com/maskedsyntax/soundsnatch.git
+   cd soundsnatch
    ```
 
 2. **Run the Script**:
