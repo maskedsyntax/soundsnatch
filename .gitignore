@@ -1,32 +1,29 @@
-# Go binaries
-/bin/
-/obj/
-
-# Go workspace files
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+
+# Test binary, built with `go test -c`
 *.test
+
+# Code coverage profiles and other test artifacts
 *.out
+coverage.*
+*.coverprofile
+profile.cov
 
-# Vendor directory
-/vendor/
+# Dependency directories (remove the comment below to include it)
+# vendor/
 
-# Go module files
-go.sum
-go.mod
+# Go workspace file
+go.work
+go.work.sum
 
-# IDE and editor files
-.idea/
-.vscode/
-*.swp
-*.swo
-*.sublime-workspace
-*.sublime-project
+# env file
+.env
 
-# OS generated files
-.DS_Store
-Thumbs.db
-
+# Editor/IDE
+# .idea/
+# .vscode/
