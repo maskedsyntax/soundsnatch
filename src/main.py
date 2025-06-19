@@ -27,60 +27,63 @@ BRIGHT_WHITE = "\033[97m"
 
 
 def get_mp3():
-
     INTRO = "\nDownload Songs, Podcasts and other audio files from Youtube 🎵 \nPress Ctrl-q anytime to quit!\n"
 
     print_ascii_art("SOUNDSNATCH - CLI")
     print(f"{BLUE}{INTRO}{RESET}")
 
-    title, webpage_url, duration = fetch_video_info(input(f"Enter video URL: {GREEN}"))
+    while True:
+        url = input(f"Enter video URL: {GREEN}")
+        title, webpage_url, duration, success = fetch_video_info(url)
 
-    if not title:
-        return
+        if not success:
+            print(
+                f"{RED}Error: Please enter a valid YouTube URL. If the issue persists, check your network connection or try again later!{RESET}"
+            )
+            continue  # Prompt for the URL again
 
-    DEAFAULT_PATH = "~/Music"
-    DEAFAULT_FILENAME = title
-    VIDEO_INFO = f"\n{BRIGHT_YELLOW}Video info fetched: \n{RESET}Title: {BRIGHT_RED}{title}\n{RESET}Video URL: {BRIGHT_RED}{webpage_url}\n{RESET}Duration: {BRIGHT_RED}{duration}{RESET}\n"
+        DEAFAULT_PATH = "~/Music"
+        DEAFAULT_FILENAME = title
+        VIDEO_INFO = f"\n{BRIGHT_YELLOW}Video info fetched: \n{RESET}Title: {BRIGHT_RED}{title}\n{RESET}Video URL: {BRIGHT_RED}{webpage_url}\n{RESET}Duration: {BRIGHT_RED}{duration}{RESET}\n"
 
-    print(VIDEO_INFO)
+        print(VIDEO_INFO)
 
-    # Select destination path for audio file
-    print(f"{YELLOW}✨ Where would you like to save your audio file? {RESET}")
-    path = set_input_default(DEAFAULT_PATH).strip()
+        # Select destination path for audio file
+        print(f"{YELLOW}✨ Where would you like to save your audio file? {RESET}")
+        path = set_input_default(DEAFAULT_PATH).strip()
 
-    # Allow user to change the filename
-    print(f"\n{YELLOW}📝 What would you like to name your audio file? {RESET}")
-    file_rename = set_input_default(DEAFAULT_FILENAME).strip()
-    print()
+        # Allow user to change the filename
+        assert DEAFAULT_FILENAME is not None
+        print(f"\n{YELLOW}📝 What would you like to name your audio file? {RESET}")
+        file_rename = set_input_default(DEAFAULT_FILENAME).strip()
+        print()
 
-    if file_rename != "":
-        path = os.path.join(path, f"{file_rename}.mp3")
-    else:
-        path = os.path.join(path, f"{title}.mp3")
+        if file_rename != "":
+            path = os.path.join(path, f"{file_rename}.mp3")
+        else:
+            path = os.path.join(path, f"{title}.mp3")
 
-    if not os.path.exists(path):
+        if not os.path.exists(path):
+            options = {
+                "format": "bestaudio/best",
+                "keepvideo": False,
+                "outtmpl": path,
+                "no_warnings": True,
+                "noplaylist": True,
+                "quiet": True,
+            }
 
-        options = {
-            "format": "bestaudio/best",
-            "keepvideo": False,
-            "outtmpl": path,
-            "no_warnings": True,
-            "noplaylist": True,
-            "quiet": True,
-        }
+            with youtube_dl.YoutubeDL(options) as ydl:
+                ydl.download([webpage_url])
 
-        with youtube_dl.YoutubeDL(options) as ydl:
-            ydl.download([webpage_url])
-
-        # print(f"{GREEN}Successfully downloaded {title}! Enjoy your audio!{RESET}")
-        print(
-            f"{GREEN}🎉 Download Complete! '{title}' has been successfully saved. Enjoy your audio experience! 🎧{RESET}"
-        )
-
-    else:
-        print(
-            f"{RED}A file already exists at the specified location: ({title}.mp3){RESET}"
-        )
+            print(
+                f"{GREEN}🎉 Download Complete! '{title}' has been successfully saved. Enjoy your audio experience! 🎧{RESET}"
+            )
+            break  # Exit the loop after successful download
+        else:
+            print(
+                f"{RED}A file already exists at the specified location: ({title}.mp3){RESET}"
+            )
 
 
 def set_input_default(text: str):
@@ -126,9 +129,17 @@ def fetch_video_info(url):
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             duration = info.get("duration", None)  # type: ignore # Duration in seconds
-            return info["title"], info["webpage_url"], duration  # type: ignore
-    except Exception:
-        return None, None, None
+            return (
+                info["title"],  # type: ignore
+                info["webpage_url"],  # type: ignore
+                duration,
+                True,
+            )  # Return success flag
+
+    except Exception as e:
+        pass
+
+    return None, None, None, False  # Return failure flag
 
 
 def print_ascii_art(text):
