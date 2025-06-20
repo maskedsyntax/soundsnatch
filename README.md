@@ -26,19 +26,19 @@ SoundSnatch is a CLI tool that allows users to download songs, podcasts and othe
 - **User-Friendly CLI**: Interactive prompts with default file paths and filenames.
 - **Customizable Output**: Choose where to save files and rename them as desired.
 - **ASCII Art**: Stylish ASCII art banner powered by the `toilet` utility (Linux/macOS).
-- **Cross-Platform Support**: Works on Linux and macOS with easy installation scripts.
+- **Cross-Platform Support**: Works on Linux, macOS, and Windows with easy installation scripts.
 
 ## Prerequisites
 
 - **Python 3.6+**: Required to run the script and create the virtual environment.
 - **pip**: Python package manager for installing dependencies.
-- **toilet** (Linux/macOS): For ASCII art display. Install with:
+- **toilet** (optional, Linux/macOS): For ASCII art display. Install with:
   ```bash
   sudo apt install toilet  # Ubuntu/Debian
   sudo pacman -S toilet    # Arch Linux
   brew install toilet      # macOS (with Homebrew)
   ```
-- `sudo` (Linux/macOS) for installing the binary to system directories.
+- Administrative privileges (Windows) or `sudo` (Linux/macOS) for installing the binary to system directories.
 
 ## Installation
 
@@ -68,13 +68,31 @@ cd soundsnatch
    - Builds the binary with PyInstaller.
    - Installs the binary to `/usr/local/bin` (requires `sudo`).
 
-### 3. Verify Installation
+#### Windows
+
+1. Open Command Prompt or PowerShell as Administrator.
+2. Navigate to the `scripts` directory:
+   ```cmd
+   cd path\to\soundsnatch\scripts
+   ```
+3. Run the script:
+   ```cmd
+   install.bat
+   ```
+   - Creates a virtual environment in `venv\`.
+   - Installs dependencies from `requirements.txt`.
+   - Builds the binary with PyInstaller.
+   - Installs the binary to `C:\Program Files\SoundSnatch` and updates the system `PATH`.
+
+### 4. Verify Installation
 
 Run `soundsnatch` from any terminal:
 
 ```bash
 soundsnatch
 ```
+
+On Windows, you may need to restart your terminal for the `PATH` update to take effect.
 
 ## Usage
 
@@ -84,7 +102,7 @@ soundsnatch
    ```
 2. Enter a YouTube video URL when prompted.
 3. Review the fetched video info (title, URL, duration).
-4. Specify the save location (defaults to `~/Music` on both Linux/macOS).
+4. Specify the save location (defaults to `~/Music` on Linux/macOS or equivalent on Windows).
 5. Rename the output MP3 file (defaults to the video title).
 6. Wait for the download to complete. The MP3 file will be saved to the specified location.
 
@@ -104,16 +122,13 @@ Download Complete! 'Rick Astley - Never Gonna Give You Up' has been successfully
 
 **Exit**: Press `Ctrl+C` or `Ctrl+Q` to quit at any time.
 
-<p align="left">
-  <img src="assets/soundsnatch_ss.png" alt="SoundSnatch SS" />
-</p>
-
 ## Troubleshooting
 
 - **Missing `toilet`**: If ASCII art fails, install `toilet` (see Prerequisites) or ignore it, as it’s cosmetic.
 - **Invalid URL**: Ensure the YouTube URL is valid and your network is active.
 - **Permission Errors**:
   - Linux/macOS: Ensure you have `sudo` privileges for `/usr/local/bin`.
+  - Windows: Run `install.bat` as Administrator.
 - **Missing Dependencies**: Verify `requirements.txt` includes `pyinstaller` and `yt-dlp`. Check internet connectivity for `pip`.
 - **Virtual Environment Issues**: Delete `venv/` and rerun the script to recreate it:
   ```bash
