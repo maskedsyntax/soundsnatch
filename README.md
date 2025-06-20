@@ -10,6 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Linux-blue" />
+  <img src="https://img.shields.io/badge/Platform-macOS-blue" />
   <img src="https://img.shields.io/badge/Built_with-Python-blueviolet" />
   <img src="https://img.shields.io/badge/UI-CLI-8bc34a" />
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" />
