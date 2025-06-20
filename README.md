@@ -120,7 +120,7 @@ Duration: 212
 Download Complete! 'Rick Astley - Never Gonna Give You Up' has been successfully saved. Enjoy your audio experience! 🎧
 ```
 
-**Exit**: Press `Ctrl+C` or `Ctrl+Q` to quit at any time.
+**Exit**: Press `Ctrl+C` to quit at any time.
 
 ## Troubleshooting
 

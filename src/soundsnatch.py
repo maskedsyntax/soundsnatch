@@ -27,7 +27,7 @@ BRIGHT_WHITE = "\033[97m"
 
 
 def get_mp3():
-    INTRO = "\nDownload Songs, Podcasts and other audio files from Youtube 🎵 \nPress Ctrl-q anytime to quit!\n"
+    INTRO = "\nDownload Songs, Podcasts and other audio files from Youtube 🎵 \nPress Ctrl-c anytime to quit!\n"
 
     print_ascii_art("SOUNDSNATCH - CLI")
     print(f"{BLUE}{INTRO}{RESET}")
