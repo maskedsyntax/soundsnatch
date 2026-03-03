@@ -14,12 +14,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func fetchInfoCmd(url string) tea.Cmd {
+func fetchInfoCmd(url string, browser string) tea.Cmd {
 	return func() tea.Msg {
-		// Use --flat-playlist to get metadata quickly without failing on individual unavailable videos
-		cmd := exec.Command("yt-dlp", "-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors", url)
+		args := []string{"-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors"}
+		if browser != "" && browser != "none" {
+			args = append(args, "--cookies-from-browser", browser)
+		}
+		args = append(args, url)
+
+		cmd := exec.Command("yt-dlp", args...)
 		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			cmd = exec.Command("python3", "-m", "yt_dlp", "-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors", url)
+			cmd = exec.Command("python3", append([]string{"-m", "yt_dlp"}, args...)...)
 		}
 
 		var stderr strings.Builder
@@ -91,7 +96,7 @@ func searchCmd(query string) tea.Cmd {
 	}
 }
 
-func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string) {
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser string) {
 	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
 	if isPlaylist {
@@ -99,10 +104,15 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string
 		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
 	}
 
-	// Added --ignore-errors to skip unavailable videos in playlists
-	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors", url)
+	args := []string{"-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors"}
+	if browser != "" && browser != "none" {
+		args = append(args, "--cookies-from-browser", browser)
+	}
+	args = append(args, url)
+
+	cmd := exec.Command("yt-dlp", args...)
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors", url)
+		cmd = exec.Command("python3", append([]string{"-m", "yt_dlp"}, args...)...)
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -129,9 +139,6 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string
 	}
 
 	if err := cmd.Wait(); err != nil {
-		// If it's a playlist, wait might return non-zero if some items were skipped, 
-		// but we might still want to consider it 'done'.
-		// However, yt-dlp usually exits 0 with --ignore-errors unless it's a fatal error.
 		errMsgStr := stderr.String()
 		if errMsgStr != "" && !isPlaylist {
 			c <- errMsg{err: fmt.Errorf("download failed: %s", errMsgStr)}

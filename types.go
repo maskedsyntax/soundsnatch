@@ -24,6 +24,7 @@ const (
 	stateCreateDir
 	stateInputFilename
 	statePickFormat
+	statePickBrowser
 	stateDownloading
 	stateDone
 	stateError
@@ -43,6 +44,7 @@ var (
 type Config struct {
 	LastSaveDir   string `yaml:"last_save_dir"`
 	DefaultFormat string `yaml:"default_format"`
+	Browser       string `yaml:"browser"`
 }
 
 type formatItem struct {
@@ -53,6 +55,17 @@ type formatItem struct {
 func (i formatItem) Title() string       { return i.label }
 func (i formatItem) Description() string { return "Download as " + i.ext }
 func (i formatItem) FilterValue() string { return i.label }
+
+type browserItem string
+
+func (i browserItem) Title() string       { return string(i) }
+func (i browserItem) Description() string { 
+	if i == "none" {
+		return "Do not use browser cookies"
+	}
+	return "Extract cookies from " + string(i) 
+}
+func (i browserItem) FilterValue() string { return string(i) }
 
 type searchResultItem struct {
 	title string
@@ -74,6 +87,7 @@ type model struct {
 	progress      progress.Model
 	formatList    list.Model
 	searchList    list.Model
+	browserList   list.Model
 
 	url           string
 	videoTitle    string

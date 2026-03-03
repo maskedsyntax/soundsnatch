@@ -14,6 +14,7 @@ func loadConfig() Config {
 	config := Config{
 		LastSaveDir:   "",
 		DefaultFormat: "mp3",
+		Browser:       "",
 	}
 
 	data, err := os.ReadFile(configPath)

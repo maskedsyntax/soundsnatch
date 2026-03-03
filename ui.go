@@ -91,6 +91,22 @@ func initialModel() model {
 	sl.Title = "Search Results"
 	sl.Styles.Title = titleStyle
 
+	browserItems := []list.Item{
+		browserItem("none"),
+		browserItem("chrome"),
+		browserItem("firefox"),
+		browserItem("brave"),
+		browserItem("edge"),
+		browserItem("safari"),
+		browserItem("opera"),
+		browserItem("vivaldi"),
+	}
+	bl := list.New(browserItems, list.NewDefaultDelegate(), 0, 0)
+	bl.Title = "Select Browser for Cookies"
+	bl.SetShowStatusBar(false)
+	bl.SetFilteringEnabled(false)
+	bl.Styles.Title = titleStyle
+
 	return model{
 		state:         stateInputURL,
 		urlInput:      uInput,
@@ -101,6 +117,7 @@ func initialModel() model {
 		progress:      prog,
 		formatList:    fl,
 		searchList:    sl,
+		browserList:   bl,
 		msgChan:       make(chan tea.Msg),
 		config:        config,
 	}
@@ -124,13 +141,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.formatList.SetSize(msg.Width-4, msg.Height-8)
 		m.searchList.SetSize(msg.Width-4, msg.Height-8)
+		m.browserList.SetSize(msg.Width-4, msg.Height-8)
 
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyEsc:
-			if m.state == stateInputURL || m.state == stateDone || m.state == stateError {
+			if m.state == stateInputURL || m.state == stateDone || m.state == stateError || m.state == statePickBrowser {
+				if m.state == statePickBrowser {
+					m.state = stateInputURL
+					return m, nil
+				}
 				return m, tea.Quit
 			}
 		}
@@ -179,13 +201,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateInputURL:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
+			if msg.String() == "b" {
+				m.state = statePickBrowser
+				return m, nil
+			}
 			if msg.Type == tea.KeyEnter {
 				input := strings.TrimSpace(m.urlInput.Value())
 				if input != "" {
 					if urlRe.MatchString(input) {
 						m.url = input
 						m.state = stateFetching
-						return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url))
+						return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url, m.config.Browser))
 					} else {
 						m.state = stateSearching
 						return m, tea.Batch(m.spinner.Tick, searchCmd(input))
@@ -204,11 +230,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.url = i.url
 					m.state = stateFetching
-					return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url))
+					return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url, m.config.Browser))
 				}
 			}
 		}
 		m.searchList, cmd = m.searchList.Update(msg)
+		cmds = append(cmds, cmd)
+
+	case statePickBrowser:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if msg.Type == tea.KeyEnter {
+				i, ok := m.browserList.SelectedItem().(browserItem)
+				if ok {
+					m.config.Browser = string(i)
+					if m.config.Browser == "none" {
+						m.config.Browser = ""
+					}
+					saveConfig(m.config)
+					m.state = stateInputURL
+					return m, nil
+				}
+			}
+		}
+		m.browserList, cmd = m.browserList.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case stateInfo:
@@ -299,7 +344,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.selectedFormat = i.ext
 					m.state = stateDownloading
-					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat)
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser)
 					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
 				}
 			}
@@ -329,7 +374,16 @@ func (m model) View() string {
 	switch m.state {
 	case stateInputURL:
 		sections = append(sections, "Enter video URL or search query:", m.urlInput.View())
-		sections = append(sections, helpStyle.Render("Press Enter to continue, Esc to quit."))
+		
+		browserStatus := "Browser: None"
+		if m.config.Browser != "" {
+			browserStatus = "Browser: " + m.config.Browser
+		}
+		sections = append(sections, helpStyle.Render("Press Enter to continue, 'b' to set browser for cookies, Esc to quit."))
+		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(browserStatus))
+
+	case statePickBrowser:
+		sections = append(sections, m.browserList.View())
 
 	case stateFetching:
 		sections = append(sections, fmt.Sprintf("%s Fetching info...", m.spinner.View()))
@@ -351,7 +405,6 @@ func (m model) View() string {
 	case statePickDir:
 		sections = append(sections, fmt.Sprintf("%s %s", boldStyle.Render("Browsing:"), m.filepicker.CurrentDirectory))
 		sections = append(sections, helpStyle.Render("Nav: ↑/k, ↓/j, Enter/→ (open) | Select: s (highlight), S (current) | n: New | Esc: Quit"))
-		sections = append(sections, "\nWhere would you like to save your audio file?")
 		
 		chrome := 0
 		for _, s := range sections {
@@ -362,7 +415,7 @@ func (m model) View() string {
 		if m.filepicker.Height < 3 {
 			m.filepicker.Height = 3
 		}
-		sections = append(sections, m.filepicker.View())
+		sections = append(sections, "\nWhere would you like to save your audio file?", m.filepicker.View())
 
 	case stateCreateDir:
 		sections = append(sections, fmt.Sprintf("Create folder in: %s", m.filepicker.CurrentDirectory))
