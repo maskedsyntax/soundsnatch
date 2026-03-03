@@ -16,6 +16,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+func (m *model) reset() {
+	m.state = stateInputURL
+	m.urlInput.Reset()
+	m.filenameInput.Reset()
+	m.mkdirInput.Reset()
+	m.url = ""
+	m.videoTitle = ""
+	m.videoDuration = 0
+	m.saveFilename = ""
+	m.downloadPercent = 0
+	m.err = nil
+	m.doneMessage = ""
+	m.urlInput.Focus()
+}
+
 func initialModel() model {
 	config := loadConfig()
 
@@ -112,8 +127,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyEsc:
+			if m.state == stateInputURL || m.state == stateDone || m.state == stateError {
+				return m, tea.Quit
+			}
 		}
 	case errMsg:
 		m.err = msg.err
@@ -288,10 +307,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.formatList, cmd = m.formatList.Update(msg)
 		cmds = append(cmds, cmd)
 
-	case stateDone:
+	case stateDone, stateError:
 		switch msg.(type) {
 		case tea.KeyMsg:
-			return m, tea.Quit
+			m.reset()
+			return m, textinput.Blink
 		}
 	}
 
@@ -300,7 +320,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.err != nil {
-		return errorStyle.Render(fmt.Sprintf("Error: %v\n\nPress Esc to quit.", m.err))
+		return errorStyle.Render(fmt.Sprintf("Error: %v\n\nPress any key to try again.", m.err))
 	}
 
 	var sections []string
@@ -367,7 +387,7 @@ func (m model) View() string {
 
 	case stateDone:
 		sections = append(sections, successStyle.Render(m.doneMessage))
-		sections = append(sections, helpStyle.Render("Press any key to exit."))
+		sections = append(sections, helpStyle.Render("Press any key to download another!"))
 	}
 
 	return lipgloss.NewStyle().Margin(1, 2).Render(lipgloss.JoinVertical(lipgloss.Left, sections...))
