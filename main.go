@@ -26,6 +26,8 @@ type state int
 const (
 	stateInputURL state = iota
 	stateFetching
+	stateSearching
+	statePickSearchResult
 	stateInfo
 	statePickDir
 	stateCreateDir
@@ -44,6 +46,7 @@ var (
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	boldStyle    = lipgloss.NewStyle().Bold(true)
 	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
+	urlRe        = regexp.MustCompile(`^https?://`)
 )
 
 type formatItem struct {
@@ -55,6 +58,16 @@ func (i formatItem) Title() string       { return i.label }
 func (i formatItem) Description() string { return "Download as " + i.ext }
 func (i formatItem) FilterValue() string { return i.label }
 
+type searchResultItem struct {
+	title string
+	url   string
+	dur   string
+}
+
+func (i searchResultItem) Title() string       { return i.title }
+func (i searchResultItem) Description() string { return "Duration: " + i.dur + " | " + i.url }
+func (i searchResultItem) FilterValue() string { return i.title }
+
 type model struct {
 	state         state
 	urlInput      textinput.Model
@@ -64,6 +77,7 @@ type model struct {
 	filepicker    filepicker.Model
 	progress      progress.Model
 	formatList    list.Model
+	searchList    list.Model
 
 	url           string
 	videoTitle    string
@@ -86,6 +100,8 @@ type infoFetchedMsg struct {
 	duration float64
 }
 
+type searchResultsMsg []list.Item
+
 type progressMsg float64
 
 type downloadDoneMsg struct {
@@ -98,7 +114,7 @@ func (e errMsg) Error() string { return e.err.Error() }
 
 func initialModel() model {
 	uInput := textinput.New()
-	uInput.Placeholder = "https://youtube.com/..."
+	uInput.Placeholder = "URL or search query..."
 	uInput.Focus()
 	uInput.CharLimit = 256
 	uInput.Width = 60
@@ -144,6 +160,10 @@ func initialModel() model {
 	fl.SetFilteringEnabled(false)
 	fl.Styles.Title = titleStyle
 
+	sl := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	sl.Title = "Search Results"
+	sl.Styles.Title = titleStyle
+
 	return model{
 		state:         stateInputURL,
 		urlInput:      uInput,
@@ -153,6 +173,7 @@ func initialModel() model {
 		filepicker:    fp,
 		progress:      prog,
 		formatList:    fl,
+		searchList:    sl,
 		msgChan:       make(chan tea.Msg),
 	}
 }
@@ -195,6 +216,50 @@ func fetchInfoCmd(url string) tea.Cmd {
 			title:    title,
 			duration: durFloat,
 		}
+	}
+}
+
+func searchCmd(query string) tea.Cmd {
+	return func() tea.Msg {
+		// Search for top 5 results
+		cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
+		if _, err := exec.LookPath("yt-dlp"); err != nil {
+			cmd = exec.Command("python3", "-m", "yt_dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
+		}
+
+		out, err := cmd.Output()
+		if err != nil {
+			return errMsg{err: fmt.Errorf("search failed: %v", err)}
+		}
+
+		var results []list.Item
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			var info map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &info); err != nil {
+				continue
+			}
+			title, _ := info["title"].(string)
+			id, _ := info["id"].(string)
+			url := "https://www.youtube.com/watch?v=" + id
+			durFloat, _ := info["duration"].(float64)
+			dur := fmt.Sprintf("%02d:%02d", int(durFloat)/60, int(durFloat)%60)
+			
+			results = append(results, searchResultItem{
+				title: title,
+				url:   url,
+				dur:   dur,
+			})
+		}
+
+		if len(results) == 0 {
+			return errMsg{err: fmt.Errorf("no results found")}
+		}
+
+		return searchResultsMsg(results)
 	}
 }
 
@@ -265,6 +330,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.progress.Width = 80
 		}
 		m.formatList.SetSize(msg.Width-4, msg.Height-8)
+		m.searchList.SetSize(msg.Width-4, msg.Height-8)
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -283,6 +349,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cleanTitle := strings.ReplaceAll(m.videoTitle, "/", "_")
 		m.filenameInput.SetValue(cleanTitle)
 		return m, nil
+	case searchResultsMsg:
+		m.searchList.SetItems(msg)
+		m.state = statePickSearchResult
+		return m, nil
 	case progressMsg:
 		m.downloadPercent = float64(msg)
 		return m, waitForMsg(m.msgChan)
@@ -291,7 +361,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateDone
 		return m, nil
 	case spinner.TickMsg:
-		if m.state == stateFetching || m.state == stateDownloading {
+		if m.state == stateFetching || m.state == stateDownloading || m.state == stateSearching {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
@@ -313,14 +383,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			if msg.Type == tea.KeyEnter {
-				m.url = strings.TrimSpace(m.urlInput.Value())
-				if m.url != "" {
+				input := strings.TrimSpace(m.urlInput.Value())
+				if input != "" {
+					if urlRe.MatchString(input) {
+						m.url = input
+						m.state = stateFetching
+						return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url))
+					} else {
+						m.state = stateSearching
+						return m, tea.Batch(m.spinner.Tick, searchCmd(input))
+					}
+				}
+			}
+		}
+		m.urlInput, cmd = m.urlInput.Update(msg)
+		cmds = append(cmds, cmd)
+
+	case statePickSearchResult:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if msg.Type == tea.KeyEnter {
+				i, ok := m.searchList.SelectedItem().(searchResultItem)
+				if ok {
+					m.url = i.url
 					m.state = stateFetching
 					return m, tea.Batch(m.spinner.Tick, fetchInfoCmd(m.url))
 				}
 			}
 		}
-		m.urlInput, cmd = m.urlInput.Update(msg)
+		m.searchList, cmd = m.searchList.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case stateInfo:
@@ -435,11 +526,17 @@ func (m model) View() string {
 
 	switch m.state {
 	case stateInputURL:
-		sections = append(sections, "Enter video URL:", m.urlInput.View())
+		sections = append(sections, "Enter video URL or search query:", m.urlInput.View())
 		sections = append(sections, helpStyle.Render("Press Enter to continue, Esc to quit."))
 
 	case stateFetching:
 		sections = append(sections, fmt.Sprintf("%s Fetching info...", m.spinner.View()))
+
+	case stateSearching:
+		sections = append(sections, fmt.Sprintf("%s Searching YouTube...", m.spinner.View()))
+
+	case statePickSearchResult:
+		sections = append(sections, m.searchList.View())
 
 	case stateInfo:
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render("✨ Info fetched:"))
