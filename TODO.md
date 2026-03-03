@@ -6,7 +6,7 @@
 - [x] **Search Functionality**: Search for songs by name instead of just pasting URLs.
 
 ## Phase 2: Engineering & Distribution 🛠️
-- [ ] **Unit Testing**: Add `main_test.go` and implement tests for core logic.
+- [x] **Unit Testing**: Add `main_test.go` and implement tests for core logic.
 - [ ] **Binary Releases**: Set up GitHub Actions with GoReleaser for automated cross-platform builds.
 - [ ] **Configuration**: Add a `.yaml` config file to save user preferences (like default download paths).
 
