@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"gopkg.in/yaml.v3"
 )
 
 type state int
@@ -48,6 +49,11 @@ var (
 	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
 	urlRe        = regexp.MustCompile(`^https?://`)
 )
+
+type Config struct {
+	LastSaveDir   string `yaml:"last_save_dir"`
+	DefaultFormat string `yaml:"default_format"`
+}
 
 type formatItem struct {
 	label string
@@ -93,6 +99,7 @@ type model struct {
 	lastWindowWidth  int
 
 	msgChan chan tea.Msg
+	config  Config
 }
 
 type infoFetchedMsg struct {
@@ -112,7 +119,35 @@ type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
 
+func loadConfig() Config {
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".soundsnatch.yaml")
+	
+	config := Config{
+		LastSaveDir:   "",
+		DefaultFormat: "mp3",
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		yaml.Unmarshal(data, &config)
+	}
+
+	return config
+}
+
+func saveConfig(config Config) {
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".soundsnatch.yaml")
+	data, err := yaml.Marshal(config)
+	if err == nil {
+		os.WriteFile(configPath, data, 0644)
+	}
+}
+
 func initialModel() model {
+	config := loadConfig()
+
 	uInput := textinput.New()
 	uInput.Placeholder = "URL or search query..."
 	uInput.Focus()
@@ -137,10 +172,16 @@ func initialModel() model {
 	fp.DirAllowed = true
 	fp.FileAllowed = false
 	fp.ShowHidden = false
-	fp.CurrentDirectory, _ = os.UserHomeDir()
-	if fp.CurrentDirectory == "" {
-		fp.CurrentDirectory = "."
+	
+	if config.LastSaveDir != "" {
+		fp.CurrentDirectory = config.LastSaveDir
+	} else {
+		fp.CurrentDirectory, _ = os.UserHomeDir()
+		if fp.CurrentDirectory == "" {
+			fp.CurrentDirectory = "."
+		}
 	}
+	
 	fp.KeyMap.Select = key.NewBinding(
 		key.WithKeys("s"),
 		key.WithHelp("s", "select highlighted"),
@@ -175,6 +216,7 @@ func initialModel() model {
 		formatList:    fl,
 		searchList:    sl,
 		msgChan:       make(chan tea.Msg),
+		config:        config,
 	}
 }
 
@@ -221,7 +263,6 @@ func fetchInfoCmd(url string) tea.Cmd {
 
 func searchCmd(query string) tea.Cmd {
 	return func() tea.Msg {
-		// Search for top 5 results
 		cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
 		if _, err := exec.LookPath("yt-dlp"); err != nil {
 			cmd = exec.Command("python3", "-m", "yt_dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
@@ -430,6 +471,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.saveDir = m.filepicker.CurrentDirectory
 				m.state = stateInputFilename
 				m.filenameInput.Focus()
+				
+				// Save to config
+				m.config.LastSaveDir = m.saveDir
+				saveConfig(m.config)
+				
 				return m, textinput.Blink
 			}
 			if msg.String() == "n" {
@@ -445,6 +491,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.saveDir = path
 				m.state = stateInputFilename
 				m.filenameInput.Focus()
+				
+				// Save to config
+				m.config.LastSaveDir = m.saveDir
+				saveConfig(m.config)
+				
 				return m, textinput.Blink
 			}
 		}
