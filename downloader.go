@@ -16,9 +16,10 @@ import (
 
 func fetchInfoCmd(url string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("yt-dlp", "-j", "--no-warnings", "--quiet", url)
+		// Use --flat-playlist to get metadata quickly without failing on individual unavailable videos
+		cmd := exec.Command("yt-dlp", "-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors", url)
 		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			cmd = exec.Command("python3", "-m", "yt_dlp", "-j", "--no-warnings", "--quiet", url)
+			cmd = exec.Command("python3", "-m", "yt_dlp", "-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors", url)
 		}
 
 		var stderr strings.Builder
@@ -29,16 +30,12 @@ func fetchInfoCmd(url string) tea.Cmd {
 			if errMsgStr == "" {
 				errMsgStr = err.Error()
 			}
-			return errMsg{err: fmt.Errorf("could not fetch video info: %s", errMsgStr)}
+			return errMsg{err: fmt.Errorf("could not fetch info: %s", errMsgStr)}
 		}
 
 		var info map[string]interface{}
-		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-		if len(lines) == 0 {
-			return errMsg{err: fmt.Errorf("no info returned")}
-		}
-		if err := json.Unmarshal([]byte(lines[0]), &info); err != nil {
-			return errMsg{err: fmt.Errorf("failed to parse video info: %v", err)}
+		if err := json.Unmarshal(out, &info); err != nil {
+			return errMsg{err: fmt.Errorf("failed to parse info: %v", err)}
 		}
 
 		title, _ := info["title"].(string)
@@ -102,9 +99,10 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string
 		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
 	}
 
-	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+	// Added --ignore-errors to skip unavailable videos in playlists
+	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors", url)
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors", url)
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -131,12 +129,14 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string
 	}
 
 	if err := cmd.Wait(); err != nil {
+		// If it's a playlist, wait might return non-zero if some items were skipped, 
+		// but we might still want to consider it 'done'.
+		// However, yt-dlp usually exits 0 with --ignore-errors unless it's a fatal error.
 		errMsgStr := stderr.String()
-		if errMsgStr == "" {
-			errMsgStr = err.Error()
+		if errMsgStr != "" && !isPlaylist {
+			c <- errMsg{err: fmt.Errorf("download failed: %s", errMsgStr)}
+			return
 		}
-		c <- errMsg{err: fmt.Errorf("download failed: %s", errMsgStr)}
-		return
 	}
 
 	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Download Complete!\nFiles saved to: %s", saveDir)}
