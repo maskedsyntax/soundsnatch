@@ -99,12 +99,28 @@ func searchCmd(query string) tea.Cmd {
 func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser string) {
 	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
+	
+	args := []string{
+		"-f", "bestaudio/best",
+		"--extract-audio",
+		"--audio-format", format,
+		"--no-warnings",
+		"--newline",
+		"--progress",
+		"--ignore-errors",
+		"--no-cache-dir",
+		"--lazy-playlist", // START DOWNLOADING IMMEDIATELY WITHOUT WAITING FOR ENTIRE LIST
+	}
+
 	if isPlaylist {
 		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s.%(ext)s")
 		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
+	} else {
+		args = append(args, "--no-playlist")
 	}
 
-	args := []string{"-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", "--ignore-errors"}
+	args = append(args, "-o", outtmpl)
+
 	if browser != "" && browser != "none" {
 		args = append(args, "--cookies-from-browser", browser)
 	}
