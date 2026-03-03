@@ -2,7 +2,7 @@
 
 ## Phase 1: UI/UX Enhancements 🚀
 - [x] **Real Progress Bars**: Replace the spinner with a 0-100% progress bar using `yt-dlp` output parsing.
-- [ ] **Format Selection**: Add a menu to choose between MP3, FLAC, and WAV.
+- [x] **Format Selection**: Add a menu to choose between MP3, FLAC, and WAV.
 - [ ] **Search Functionality**: Search for songs by name instead of just pasting URLs.
 
 ## Phase 2: Engineering & Distribution 🛠️

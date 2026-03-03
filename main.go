@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -29,6 +30,7 @@ const (
 	statePickDir
 	stateCreateDir
 	stateInputFilename
+	statePickFormat
 	stateDownloading
 	stateDone
 	stateError
@@ -44,6 +46,15 @@ var (
 	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
 )
 
+type formatItem struct {
+	label string
+	ext   string
+}
+
+func (i formatItem) Title() string       { return i.label }
+func (i formatItem) Description() string { return "Download as " + i.ext }
+func (i formatItem) FilterValue() string { return i.label }
+
 type model struct {
 	state         state
 	urlInput      textinput.Model
@@ -52,12 +63,14 @@ type model struct {
 	spinner       spinner.Model
 	filepicker    filepicker.Model
 	progress      progress.Model
+	formatList    list.Model
 
 	url           string
 	videoTitle    string
 	videoDuration float64
 	saveDir       string
 	saveFilename  string
+	selectedFormat string
 
 	downloadPercent float64
 	err             error
@@ -91,7 +104,7 @@ func initialModel() model {
 	uInput.Width = 60
 
 	fInput := textinput.New()
-	fInput.Placeholder = "filename (without .mp3)"
+	fInput.Placeholder = "filename (without extension)"
 	fInput.CharLimit = 100
 	fInput.Width = 60
 
@@ -120,6 +133,17 @@ func initialModel() model {
 
 	prog := progress.New(progress.WithDefaultGradient())
 
+	items := []list.Item{
+		formatItem{label: "MP3 (Standard)", ext: "mp3"},
+		formatItem{label: "FLAC (Lossless)", ext: "flac"},
+		formatItem{label: "WAV (High Quality)", ext: "wav"},
+	}
+	fl := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	fl.Title = "Select Audio Format"
+	fl.SetShowStatusBar(false)
+	fl.SetFilteringEnabled(false)
+	fl.Styles.Title = titleStyle
+
 	return model{
 		state:         stateInputURL,
 		urlInput:      uInput,
@@ -128,6 +152,7 @@ func initialModel() model {
 		spinner:       s,
 		filepicker:    fp,
 		progress:      prog,
+		formatList:    fl,
 		msgChan:       make(chan tea.Msg),
 	}
 }
@@ -179,17 +204,17 @@ func waitForMsg(c chan tea.Msg) tea.Cmd {
 	}
 }
 
-func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename string) {
-	outtmpl := filepath.Join(saveDir, saveFilename+".mp3")
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format string) {
+	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
 	if isPlaylist {
 		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s.%(ext)s")
 		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
 	}
 
-	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", format, "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -239,6 +264,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.progress.Width > 80 {
 			m.progress.Width = 80
 		}
+		m.formatList.SetSize(msg.Width-4, msg.Height-8)
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -365,13 +391,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Type == tea.KeyEnter {
 				m.saveFilename = strings.TrimSpace(m.filenameInput.Value())
 				if m.saveFilename != "" {
-					m.state = stateDownloading
-					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename)
-					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
+					m.state = statePickFormat
+					return m, nil
 				}
 			}
 		}
 		m.filenameInput, cmd = m.filenameInput.Update(msg)
+		cmds = append(cmds, cmd)
+
+	case statePickFormat:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if msg.Type == tea.KeyEnter {
+				i, ok := m.formatList.SelectedItem().(formatItem)
+				if ok {
+					m.selectedFormat = i.ext
+					m.state = stateDownloading
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat)
+					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
+				}
+			}
+		}
+		m.formatList, cmd = m.formatList.Update(msg)
 		cmds = append(cmds, cmd)
 
 	case stateDone:
@@ -432,10 +473,13 @@ func (m model) View() string {
 	case stateInputFilename:
 		sections = append(sections, "📝 Name your download:", m.filenameInput.View())
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf("Destination: %s", m.saveDir)))
-		sections = append(sections, helpStyle.Render("Press Enter to download, Esc to quit."))
+		sections = append(sections, helpStyle.Render("Press Enter to select format, Esc to quit."))
+
+	case statePickFormat:
+		sections = append(sections, m.formatList.View())
 
 	case stateDownloading:
-		sections = append(sections, fmt.Sprintf("%s Downloading and converting...", m.spinner.View()))
+		sections = append(sections, fmt.Sprintf("%s Downloading and converting to %s...", m.spinner.View(), strings.ToUpper(m.selectedFormat)))
 		sections = append(sections, infoStyle.Render(fmt.Sprintf("Target: %s", m.videoTitle)))
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf("Saving to: %s", m.saveDir)))
 		
