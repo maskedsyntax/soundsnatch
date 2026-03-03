@@ -11,7 +11,7 @@
 - [x] **Configuration**: Add a `.yaml` config file to save user preferences (like default download paths).
 
 ## Phase 3: Architectural Refactoring 🏗️
-- [ ] **Code Organization**: Split `main.go` into dedicated packages (`ui`, `downloader`, `fs`).
+- [x] **Code Organization**: Split `main.go` into dedicated packages (`ui`, `downloader`, `fs`).
 
 ## Phase 4: Final Polish ✨
 - [ ] **Update Assets**: Replace `assets/soundsnatch_ss.png` with a new TUI screenshot. (User task)
