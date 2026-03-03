@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,6 +41,7 @@ var (
 	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	boldStyle    = lipgloss.NewStyle().Bold(true)
+	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
 )
 
 type model struct {
@@ -46,6 +51,7 @@ type model struct {
 	mkdirInput    textinput.Model
 	spinner       spinner.Model
 	filepicker    filepicker.Model
+	progress      progress.Model
 
 	url           string
 	videoTitle    string
@@ -53,15 +59,21 @@ type model struct {
 	saveDir       string
 	saveFilename  string
 
-	err         error
-	doneMessage string
+	downloadPercent float64
+	err             error
+	doneMessage     string
 	lastWindowHeight int
+	lastWindowWidth  int
+
+	msgChan chan tea.Msg
 }
 
 type infoFetchedMsg struct {
 	title    string
 	duration float64
 }
+
+type progressMsg float64
 
 type downloadDoneMsg struct {
 	message string
@@ -106,6 +118,8 @@ func initialModel() model {
 	)
 	fp.Height = 10
 
+	prog := progress.New(progress.WithDefaultGradient())
+
 	return model{
 		state:         stateInputURL,
 		urlInput:      uInput,
@@ -113,6 +127,8 @@ func initialModel() model {
 		mkdirInput:    mInput,
 		spinner:       s,
 		filepicker:    fp,
+		progress:      prog,
+		msgChan:       make(chan tea.Msg),
 	}
 }
 
@@ -140,6 +156,9 @@ func fetchInfoCmd(url string) tea.Cmd {
 
 		var info map[string]interface{}
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		if len(lines) == 0 {
+			return errMsg{err: fmt.Errorf("no info returned")}
+		}
 		if err := json.Unmarshal([]byte(lines[0]), &info); err != nil {
 			return errMsg{err: fmt.Errorf("failed to parse video info: %v", err)}
 		}
@@ -154,35 +173,58 @@ func fetchInfoCmd(url string) tea.Cmd {
 	}
 }
 
-func downloadCmd(url, saveDir, saveFilename string) tea.Cmd {
+func waitForMsg(c chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		if saveFilename == "" {
-			return errMsg{err: fmt.Errorf("filename cannot be empty")}
-		}
-
-		outtmpl := filepath.Join(saveDir, saveFilename+".mp3")
-		if strings.Contains(url, "list=") || strings.Contains(url, "playlist") {
-			outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s.%(ext)s")
-			os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
-		}
-
-		cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--quiet", url)
-		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--quiet", url)
-		}
-
-		var stderr strings.Builder
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			errMsgStr := stderr.String()
-			if errMsgStr == "" {
-				errMsgStr = err.Error()
-			}
-			return errMsg{err: fmt.Errorf("download failed: %s", errMsgStr)}
-		}
-
-		return downloadDoneMsg{message: fmt.Sprintf("🎉 Download Complete!\nFiles saved to: %s", saveDir)}
+		return <-c
 	}
+}
+
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename string) {
+	outtmpl := filepath.Join(saveDir, saveFilename+".mp3")
+	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
+	if isPlaylist {
+		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s.%(ext)s")
+		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
+	}
+
+	cmd := exec.Command("yt-dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		cmd = exec.Command("python3", "-m", "yt_dlp", "-f", "bestaudio/best", "--extract-audio", "--audio-format", "mp3", "-o", outtmpl, "--no-warnings", "--newline", "--progress", url)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		c <- errMsg{err: err}
+		return
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		c <- errMsg{err: err}
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := progressRe.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			pct, _ := strconv.ParseFloat(matches[1], 64)
+			c <- progressMsg(pct / 100.0)
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		errMsgStr := stderr.String()
+		if errMsgStr == "" {
+			errMsgStr = err.Error()
+		}
+		c <- errMsg{err: fmt.Errorf("download failed: %s", errMsgStr)}
+		return
+	}
+
+	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Download Complete!\nFiles saved to: %s", saveDir)}
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -192,10 +234,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.lastWindowHeight = msg.Height
-		// Re-calculate height in state transitions as well, but this is the base.
-		m.filepicker.Height = msg.Height - 12
-		if m.filepicker.Height < 3 {
-			m.filepicker.Height = 3
+		m.lastWindowWidth = msg.Width
+		m.progress.Width = msg.Width - 10
+		if m.progress.Width > 80 {
+			m.progress.Width = 80
 		}
 
 	case tea.KeyMsg:
@@ -215,6 +257,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cleanTitle := strings.ReplaceAll(m.videoTitle, "/", "_")
 		m.filenameInput.SetValue(cleanTitle)
 		return m, nil
+	case progressMsg:
+		m.downloadPercent = float64(msg)
+		return m, waitForMsg(m.msgChan)
 	case downloadDoneMsg:
 		m.doneMessage = msg.message
 		m.state = stateDone
@@ -224,6 +269,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
+	case progress.FrameMsg:
+		newModel, cmd := m.progress.Update(msg)
+		if newProg, ok := newModel.(progress.Model); ok {
+			m.progress = newProg
+		}
+		return m, cmd
 	}
 
 	if _, isKey := msg.(tea.KeyMsg); !isKey {
@@ -315,7 +366,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.saveFilename = strings.TrimSpace(m.filenameInput.Value())
 				if m.saveFilename != "" {
 					m.state = stateDownloading
-					return m, tea.Batch(m.spinner.Tick, downloadCmd(m.url, m.saveDir, m.saveFilename))
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename)
+					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
 				}
 			}
 		}
@@ -361,12 +413,11 @@ func (m model) View() string {
 		sections = append(sections, helpStyle.Render("Nav: ↑/k, ↓/j, Enter/→ (open) | Select: s (highlight), S (current) | n: New | Esc: Quit"))
 		sections = append(sections, "\nWhere would you like to save your audio file?")
 		
-		// Re-calculate the exact height needed for the filepicker based on the content above it
 		chrome := 0
 		for _, s := range sections {
 			chrome += lipgloss.Height(s)
 		}
-		chrome += 4 // Safety for margins and padding
+		chrome += 4
 		m.filepicker.Height = m.lastWindowHeight - chrome
 		if m.filepicker.Height < 3 {
 			m.filepicker.Height = 3
@@ -387,6 +438,9 @@ func (m model) View() string {
 		sections = append(sections, fmt.Sprintf("%s Downloading and converting...", m.spinner.View()))
 		sections = append(sections, infoStyle.Render(fmt.Sprintf("Target: %s", m.videoTitle)))
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf("Saving to: %s", m.saveDir)))
+		
+		progView := m.progress.ViewAs(m.downloadPercent)
+		sections = append(sections, "\n"+progView)
 
 	case stateDone:
 		sections = append(sections, successStyle.Render(m.doneMessage))
