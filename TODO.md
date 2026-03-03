@@ -7,7 +7,7 @@
 
 ## Phase 2: Engineering & Distribution 🛠️
 - [x] **Unit Testing**: Add `main_test.go` and implement tests for core logic.
-- [ ] **Binary Releases**: Set up GitHub Actions with GoReleaser for automated cross-platform builds.
+- [x] **Binary Releases**: Set up GitHub Actions with GoReleaser for automated cross-platform builds.
 - [ ] **Configuration**: Add a `.yaml` config file to save user preferences (like default download paths).
 
 ## Phase 3: Architectural Refactoring 🏗️
