@@ -5,44 +5,43 @@
 <h1 align="center">SoundSnatch</h1>
 
 <p align="center">
-  <b> Download Songs, Podcasts and other audio files from Youtube. 🎵 </b>
+  <b> Download Songs, Podcasts and other audio files from YouTube with a sleek TUI. 🎵 </b>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Linux-blue" />
   <img src="https://img.shields.io/badge/Platform-macOS-blue" />
-  <img src="https://img.shields.io/badge/Built_with-Python-blueviolet" />
-  <img src="https://img.shields.io/badge/UI-CLI-8bc34a" />
+  <img src="https://img.shields.io/badge/Built_with-Go-00ADD8" />
+  <img src="https://img.shields.io/badge/UI-TUI-8bc34a" />
+  <img src="https://img.shields.io/badge/Framework-Bubble_Tea-FF4081" />
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" />
 </p>
 
 ## Overview
 
-SoundSnatch is a CLI tool that allows users to download songs, podcasts and other audio files from YouTube within seconds. With a simple and user-friendly interface, you can easily fetch and save your favorite audio content in MP3 format.
+SoundSnatch is a modern Terminal User Interface (TUI) tool rewritten in Go using the [Bubble Tea](https://github.com/charmbracelet/bubbletea) framework. It allows users to download songs, podcasts, and entire playlists from YouTube and YouTube Music with ease, featuring an interactive directory picker and customizable filenames.
 
 ## Features
 
-- **Download Audio from YouTube**: Convert YouTube videos to high-quality MP3 files.
-- **User-Friendly CLI**: Interactive prompts with default file paths and filenames.
-- **Customizable Output**: Choose where to save files and rename them as desired.
-- **ASCII Art**: Stylish ASCII art banner powered by the `toilet` utility (Linux/macOS).
-- **Cross-Platform Support**: Works on Linux and macOS with easy installation scripts.
+- **Sleek TUI**: Powered by Bubble Tea and Lip Gloss for a beautiful terminal experience.
+- **Playlist Support**: Download entire playlists from YouTube or YouTube Music into dedicated folders.
+- **Interactive Directory Picker**: Browse and select download destinations using a built-in file picker.
+- **On-the-fly Folder Creation**: Create new subfolders directly within the TUI to organize your music.
+- **Customizable Filenames**: Automatically suggests video titles as filenames, with full editing support.
+- **Cross-Platform**: Natively compiled for Linux and macOS.
 
 ## Prerequisites
 
-- **Python 3.6+**: Required to run the script and create the virtual environment.
-- **pip**: Python package manager for installing dependencies.
-- **toilet** (optional, Linux/macOS): For ASCII art display. Install with:
+- **Go 1.21+**: Required to build the application.
+- **yt-dlp**: Required for audio extraction. We recommend the latest native binary.
   ```bash
-  sudo apt install toilet  # Ubuntu/Debian
-  sudo pacman -S toilet    # Arch Linux
-  brew install toilet      # macOS (with Homebrew)
+  # Linux (example using curl to install locally)
+  mkdir -p ~/.local/bin
+  curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+  chmod a+rx ~/.local/bin/yt-dlp
   ```
-- `sudo` (Linux/macOS) for installing the binary to system directories.
 
 ## Installation
-
-SoundSnatch uses installation scripts to build a binary with PyInstaller and install it to a system directory. The process uses a virtual environment and `requirements.txt` for consistent dependency management.
 
 ### 1. Clone the Repository
 
@@ -51,29 +50,18 @@ git clone https://github.com/maskedsyntax/soundsnatch.git
 cd soundsnatch
 ```
 
-### 2. Run the Installation Script
-
-#### Linux/macOS
-
-1. Make the script executable:
-   ```bash
-   chmod +x scripts/install.sh
-   ```
-2. Run the script:
-   ```bash
-   ./scripts/install.sh
-   ```
-   - Creates a virtual environment in `venv/`.
-   - Installs dependencies from `requirements.txt`.
-   - Builds the binary with PyInstaller.
-   - Installs the binary to `/usr/local/bin` (requires `sudo`).
-
-### 3. Verify Installation
-
-Run `soundsnatch` from any terminal:
+### 2. Build and Install
 
 ```bash
-soundsnatch
+go build -o soundsnatch .
+# Move it to your path if desired
+sudo mv soundsnatch /usr/local/bin/
+```
+
+Or install directly via Go:
+
+```bash
+go install .
 ```
 
 ## Usage
@@ -82,49 +70,25 @@ soundsnatch
    ```bash
    soundsnatch
    ```
-2. Enter a YouTube video URL when prompted.
-3. Review the fetched video info (title, URL, duration).
-4. Specify the save location (defaults to `~/Music` on Linux/macOS).
-5. Rename the output MP3 file (defaults to the video title).
-6. Wait for the download to complete. The MP3 file will be saved to the specified location.
-
-**Example**:
-
-```
-Enter video URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-Fetching video info...
-Video info fetched:
-Title: Rick Astley - Never Gonna Give You Up
-Video URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-Duration: 212
-✨ Where would you like to save your audio file? ~/Music
-📝 What would you like to name your audio file? Never Gonna Give You Up
-Download Complete! 'Rick Astley - Never Gonna Give You Up' has been successfully saved. Enjoy your audio experience! 🎧
-```
-
-**Exit**: Press `Ctrl+C` to quit at any time.
+2. **Enter URL**: Paste a YouTube video or playlist URL.
+3. **Choose Destination**: 
+   - Use arrows/`j`/`k` to navigate.
+   - Press `Enter`/`l`/`→` to enter folders.
+   - Press **`n`** to create a new folder.
+   - Press **`s`** to select the highlighted folder.
+   - Press **`S`** to select the current browsing directory.
+4. **Name Your Download**: Edit the suggested filename or provide a folder name for playlists.
+5. **Download**: Watch the spinner as SoundSnatch handles the extraction and conversion to MP3.
 
 ## Troubleshooting
 
-- **Missing `toilet`**: If ASCII art fails, install `toilet` (see Prerequisites) or ignore it, as it’s cosmetic.
-- **Invalid URL**: Ensure the YouTube URL is valid and your network is active.
-- **Permission Errors**:
-  - Linux/macOS: Ensure you have `sudo` privileges for `/usr/local/bin`.
-- **Missing Dependencies**: Verify `requirements.txt` includes `pyinstaller` and `yt-dlp`. Check internet connectivity for `pip`.
-- **Virtual Environment Issues**: Delete `venv/` and rerun the script to recreate it:
-  ```bash
-  rm -rf venv/
-  ```
+- **yt-dlp not found**: Ensure `yt-dlp` is in your `$PATH`.
+- **Invalid URL**: Ensure the URL is accessible and valid.
+- **Permission Denied**: Check write permissions for the target directory.
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/your-feature`).
-3. Commit changes (`git commit -m 'Add your feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a Pull Request.
+Contributions are welcome! Please fork the repository and submit a pull request.
 
 ## License
 
@@ -132,6 +96,5 @@ This project is licensed under the [MIT License](LICENSE). See the `LICENSE` fil
 
 ## Acknowledgments
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for audio downloading capabilities.
-- [PyInstaller](https://www.pyinstaller.org/) for creating standalone binaries.
-- [toilet](http://caca.zoy.org/wiki/toilet) for ASCII art generation.
+- [Charm Bracelet](https://charm.sh/) for the amazing Bubble Tea TUI ecosystem.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for the powerful media extraction engine.
