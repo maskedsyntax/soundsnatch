@@ -38,6 +38,7 @@ var (
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	boldStyle    = lipgloss.NewStyle().Bold(true)
 	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
+	itemRe       = regexp.MustCompile(`\[download\] Downloading item (\d+) of (\d+)`)
 	urlRe        = regexp.MustCompile(`^https?://`)
 )
 
@@ -45,6 +46,7 @@ type Config struct {
 	LastSaveDir   string `yaml:"last_save_dir"`
 	DefaultFormat string `yaml:"default_format"`
 	Browser       string `yaml:"browser"`
+	ArchivePath   string `yaml:"archive_path"`
 }
 
 type formatItem struct {
@@ -97,6 +99,9 @@ type model struct {
 	selectedFormat string
 
 	downloadPercent float64
+	currentItem     int
+	totalItems      int
+	
 	err             error
 	doneMessage     string
 	lastWindowHeight int
@@ -113,7 +118,11 @@ type infoFetchedMsg struct {
 
 type searchResultsMsg []list.Item
 
-type progressMsg float64
+type progressMsg struct {
+	pct     float64
+	current int
+	total   int
+}
 
 type downloadDoneMsg struct {
 	message string

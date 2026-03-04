@@ -10,11 +10,13 @@ import (
 func loadConfig() Config {
 	home, _ := os.UserHomeDir()
 	configPath := filepath.Join(home, ".soundsnatch.yaml")
+	archivePath := filepath.Join(home, ".soundsnatch_archive.txt")
 	
 	config := Config{
 		LastSaveDir:   "",
 		DefaultFormat: "mp3",
 		Browser:       "",
+		ArchivePath:   archivePath,
 	}
 
 	data, err := os.ReadFile(configPath)

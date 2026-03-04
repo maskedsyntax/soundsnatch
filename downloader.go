@@ -96,7 +96,7 @@ func searchCmd(query string) tea.Cmd {
 	}
 }
 
-func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser string) {
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser, archivePath string) {
 	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
 	
@@ -109,11 +109,17 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		"--progress",
 		"--ignore-errors",
 		"--no-cache-dir",
-		"--lazy-playlist", // START DOWNLOADING IMMEDIATELY WITHOUT WAITING FOR ENTIRE LIST
+		"--lazy-playlist",
+		"--no-overwrites",
+	}
+
+	if archivePath != "" {
+		args = append(args, "--download-archive", archivePath)
 	}
 
 	if isPlaylist {
-		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s.%(ext)s")
+		// Include ID in filename to prevent collisions and support easy sync
+		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s [%(id)s].%(ext)s")
 		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
 	} else {
 		args = append(args, "--no-playlist")
@@ -145,12 +151,25 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	curItem := 0
+	totItems := 0
 	for scanner.Scan() {
 		line := scanner.Text()
-		matches := progressRe.FindStringSubmatch(line)
-		if len(matches) > 1 {
-			pct, _ := strconv.ParseFloat(matches[1], 64)
-			c <- progressMsg(pct / 100.0)
+		
+		// Parse playlist status
+		if m := itemRe.FindStringSubmatch(line); len(m) > 2 {
+			curItem, _ = strconv.Atoi(m[1])
+			totItems, _ = strconv.Atoi(m[2])
+		}
+
+		// Parse progress
+		if m := progressRe.FindStringSubmatch(line); len(m) > 1 {
+			pct, _ := strconv.ParseFloat(m[1], 64)
+			c <- progressMsg{
+				pct:     pct / 100.0,
+				current: curItem,
+				total:   totItems,
+			}
 		}
 	}
 
@@ -162,7 +181,7 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		}
 	}
 
-	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Download Complete!\nFiles saved to: %s", saveDir)}
+	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Sync Complete!\nYour library at: %s is now up to date.", saveDir)}
 }
 
 func waitForMsg(c chan tea.Msg) tea.Cmd {

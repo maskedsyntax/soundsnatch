@@ -26,6 +26,8 @@ func (m *model) reset() {
 	m.videoDuration = 0
 	m.saveFilename = ""
 	m.downloadPercent = 0
+	m.currentItem = 0
+	m.totalItems = 0
 	m.err = nil
 	m.doneMessage = ""
 	m.urlInput.Focus()
@@ -173,7 +175,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = statePickSearchResult
 		return m, nil
 	case progressMsg:
-		m.downloadPercent = float64(msg)
+		m.downloadPercent = msg.pct
+		m.currentItem = msg.current
+		m.totalItems = msg.total
 		return m, waitForMsg(m.msgChan)
 	case downloadDoneMsg:
 		m.doneMessage = msg.message
@@ -344,7 +348,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.selectedFormat = i.ext
 					m.state = stateDownloading
-					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser)
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser, m.config.ArchivePath)
 					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
 				}
 			}
@@ -431,7 +435,11 @@ func (m model) View() string {
 		sections = append(sections, m.formatList.View())
 
 	case stateDownloading:
-		sections = append(sections, fmt.Sprintf("%s Downloading and converting to %s...", m.spinner.View(), strings.ToUpper(m.selectedFormat)))
+		status := fmt.Sprintf("%s Downloading and converting to %s...", m.spinner.View(), strings.ToUpper(m.selectedFormat))
+		if m.totalItems > 0 {
+			status += fmt.Sprintf(" (Song %d of %d)", m.currentItem, m.totalItems)
+		}
+		sections = append(sections, status)
 		sections = append(sections, infoStyle.Render(fmt.Sprintf("Target: %s", m.videoTitle)))
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(fmt.Sprintf("Saving to: %s", m.saveDir)))
 		
