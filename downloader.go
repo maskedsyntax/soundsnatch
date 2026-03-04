@@ -96,7 +96,7 @@ func searchCmd(query string) tea.Cmd {
 	}
 }
 
-func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser, archivePath string) {
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser string) {
 	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
 	
@@ -113,14 +113,17 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		"--no-overwrites",
 	}
 
-	if archivePath != "" {
-		args = append(args, "--download-archive", archivePath)
-	}
-
 	if isPlaylist {
-		// Include ID in filename to prevent collisions and support easy sync
-		outtmpl = filepath.Join(saveDir, saveFilename, "%(title)s [%(id)s].%(ext)s")
-		os.MkdirAll(filepath.Join(saveDir, saveFilename), 0755)
+		playlistDir := filepath.Join(saveDir, saveFilename)
+		os.MkdirAll(playlistDir, 0755)
+		
+		// LOCAL ARCHIVE: Keep track of downloads INSIDE the playlist folder
+		// This prevents duplicates within the folder but allows downloading 
+		// the same song to a DIFFERENT folder.
+		archivePath := filepath.Join(playlistDir, ".soundsnatch_archive.txt")
+		args = append(args, "--download-archive", archivePath)
+		
+		outtmpl = filepath.Join(playlistDir, "%(title)s [%(id)s].%(ext)s")
 	} else {
 		args = append(args, "--no-playlist")
 	}
@@ -181,7 +184,7 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		}
 	}
 
-	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Sync Complete!\nYour library at: %s is now up to date.", saveDir)}
+	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Sync Complete!\nFiles are in: %s", saveDir)}
 }
 
 func waitForMsg(c chan tea.Msg) tea.Cmd {
