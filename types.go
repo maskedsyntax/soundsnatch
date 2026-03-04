@@ -46,6 +46,7 @@ type Config struct {
 	LastSaveDir   string `yaml:"last_save_dir"`
 	DefaultFormat string `yaml:"default_format"`
 	Browser       string `yaml:"browser"`
+	ArchivePath   string `yaml:"archive_path"`
 }
 
 type formatItem struct {

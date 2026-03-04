@@ -348,7 +348,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.selectedFormat = i.ext
 					m.state = stateDownloading
-					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser)
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser, m.config.ArchivePath)
 					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
 				}
 			}

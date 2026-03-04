@@ -16,7 +16,7 @@ import (
 
 func fetchInfoCmd(url string, browser string) tea.Cmd {
 	return func() tea.Msg {
-		args := []string{"-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors"}
+		args := []string{"-J", "--flat-playlist", "--no-warnings", "--quiet", "--ignore-errors", "--ignore-config", "--no-check-formats", "--js-runtimes", "node"}
 		if browser != "" && browser != "none" {
 			args = append(args, "--cookies-from-browser", browser)
 		}
@@ -27,37 +27,44 @@ func fetchInfoCmd(url string, browser string) tea.Cmd {
 			cmd = exec.Command("python3", append([]string{"-m", "yt_dlp"}, args...)...)
 		}
 
-		var stderr strings.Builder
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-		out, err := cmd.Output()
-		if err != nil {
-			errMsgStr := stderr.String()
+		runErr := cmd.Run()
+
+		outStr := strings.TrimSpace(stdout.String())
+
+		// Prefer valid JSON output even if yt-dlp exited non-zero (e.g. format warnings)
+		if outStr != "" {
+			var info map[string]interface{}
+			if err := json.Unmarshal([]byte(outStr), &info); err == nil {
+				title, _ := info["title"].(string)
+				durFloat, _ := info["duration"].(float64)
+				return infoFetchedMsg{
+					title:    title,
+					duration: durFloat,
+				}
+			}
+		}
+
+		// No usable JSON — surface the actual error
+		if runErr != nil {
+			errMsgStr := strings.TrimSpace(stderr.String())
 			if errMsgStr == "" {
-				errMsgStr = err.Error()
+				errMsgStr = runErr.Error()
 			}
 			return errMsg{err: fmt.Errorf("could not fetch info: %s", errMsgStr)}
 		}
 
-		var info map[string]interface{}
-		if err := json.Unmarshal(out, &info); err != nil {
-			return errMsg{err: fmt.Errorf("failed to parse info: %v", err)}
-		}
-
-		title, _ := info["title"].(string)
-		durFloat, _ := info["duration"].(float64)
-
-		return infoFetchedMsg{
-			title:    title,
-			duration: durFloat,
-		}
+		return errMsg{err: fmt.Errorf("could not fetch info: no output from yt-dlp")}
 	}
 }
 
 func searchCmd(query string) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
+		cmd := exec.Command("yt-dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist", "--ignore-config")
 		if _, err := exec.LookPath("yt-dlp"); err != nil {
-			cmd = exec.Command("python3", "-m", "yt_dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist")
+			cmd = exec.Command("python3", "-m", "yt_dlp", "ytsearch5:"+query, "-j", "--no-warnings", "--quiet", "--flat-playlist", "--ignore-config")
 		}
 
 		out, err := cmd.Output()
@@ -96,14 +103,18 @@ func searchCmd(query string) tea.Cmd {
 	}
 }
 
-func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser string) {
+func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, browser, archivePath string) {
 	outtmpl := filepath.Join(saveDir, saveFilename+"."+format)
 	isPlaylist := strings.Contains(url, "list=") || strings.Contains(url, "playlist")
-	
+
 	args := []string{
-		"-f", "bestaudio/best",
+		"-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
 		"--extract-audio",
 		"--audio-format", format,
+		"--audio-quality", "0",
+		"--no-check-formats",
+		"--js-runtimes", "node",
+		"--embed-metadata",
 		"--no-warnings",
 		"--newline",
 		"--progress",
@@ -111,21 +122,22 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		"--no-cache-dir",
 		"--lazy-playlist",
 		"--no-overwrites",
+		"--ignore-config",
 	}
 
 	if isPlaylist {
 		playlistDir := filepath.Join(saveDir, saveFilename)
 		os.MkdirAll(playlistDir, 0755)
-		
-		// LOCAL ARCHIVE: Keep track of downloads INSIDE the playlist folder
-		// This prevents duplicates within the folder but allows downloading 
-		// the same song to a DIFFERENT folder.
-		archivePath := filepath.Join(playlistDir, ".soundsnatch_archive.txt")
-		args = append(args, "--download-archive", archivePath)
-		
-		outtmpl = filepath.Join(playlistDir, "%(title)s [%(id)s].%(ext)s")
+		outtmpl = filepath.Join(playlistDir, "%(title)s.%(ext)s")
+		// Use a per-playlist archive so the same song can exist in different playlists
+		// and playlists don't interfere with each other
+		localArchive := filepath.Join(playlistDir, ".archive.txt")
+		args = append(args, "--download-archive", localArchive)
 	} else {
 		args = append(args, "--no-playlist")
+		if archivePath != "" {
+			args = append(args, "--download-archive", archivePath)
+		}
 	}
 
 	args = append(args, "-o", outtmpl)
@@ -184,7 +196,7 @@ func startDownloadTask(c chan tea.Msg, url, saveDir, saveFilename, format, brows
 		}
 	}
 
-	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Sync Complete!\nFiles are in: %s", saveDir)}
+	c <- downloadDoneMsg{message: fmt.Sprintf("🎉 Sync Complete!\nYour library at: %s is now up to date.", saveDir)}
 }
 
 func waitForMsg(c chan tea.Msg) tea.Cmd {
