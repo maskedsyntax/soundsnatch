@@ -24,10 +24,12 @@ func (m *model) reset() {
 	m.url = ""
 	m.videoTitle = ""
 	m.videoDuration = 0
+	m.playlistCount = 0
 	m.saveFilename = ""
 	m.downloadPercent = 0
 	m.currentItem = 0
 	m.totalItems = 0
+	m.downloadStatus = ""
 	m.err = nil
 	m.doneMessage = ""
 	m.urlInput.Focus()
@@ -97,6 +99,7 @@ func initialModel() model {
 		browserItem("none"),
 		browserItem("chrome"),
 		browserItem("firefox"),
+		browserItem("firefox-dev"),
 		browserItem("brave"),
 		browserItem("edge"),
 		browserItem("safari"),
@@ -120,7 +123,7 @@ func initialModel() model {
 		formatList:    fl,
 		searchList:    sl,
 		browserList:   bl,
-		msgChan:       make(chan tea.Msg),
+		msgChan:       make(chan tea.Msg, 64),
 		config:        config,
 	}
 }
@@ -165,6 +168,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case infoFetchedMsg:
 		m.videoTitle = msg.title
 		m.videoDuration = msg.duration
+		m.playlistCount = msg.playlistCount
 		m.state = stateInfo
 
 		cleanTitle := strings.ReplaceAll(m.videoTitle, "/", "_")
@@ -178,6 +182,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.downloadPercent = msg.pct
 		m.currentItem = msg.current
 		m.totalItems = msg.total
+		if msg.current > 0 {
+			m.downloadStatus = ""
+		}
+		return m, waitForMsg(m.msgChan)
+	case statusMsg:
+		m.downloadStatus = msg.text
+		if msg.text != "" && m.totalItems == 0 && m.playlistCount > 0 {
+			m.totalItems = m.playlistCount
+		}
 		return m, waitForMsg(m.msgChan)
 	case downloadDoneMsg:
 		m.doneMessage = msg.message
@@ -274,10 +287,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyMsg:
 			if msg.String() == "S" {
 				m.saveDir = m.filepicker.CurrentDirectory
-				m.state = stateInputFilename
-				m.filenameInput.Focus()
 				m.config.LastSaveDir = m.saveDir
 				saveConfig(m.config)
+				if isPlaylistURL(m.url) {
+					m.saveFilename = ""
+					m.state = statePickFormat
+					return m, nil
+				}
+				m.state = stateInputFilename
+				m.filenameInput.Focus()
 				return m, textinput.Blink
 			}
 			if msg.String() == "n" {
@@ -291,10 +309,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
 				m.saveDir = path
-				m.state = stateInputFilename
-				m.filenameInput.Focus()
 				m.config.LastSaveDir = m.saveDir
 				saveConfig(m.config)
+				if isPlaylistURL(m.url) {
+					m.saveFilename = ""
+					m.state = statePickFormat
+					return m, nil
+				}
+				m.state = stateInputFilename
+				m.filenameInput.Focus()
 				return m, textinput.Blink
 			}
 		}
@@ -348,7 +371,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.selectedFormat = i.ext
 					m.state = stateDownloading
-					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser, m.config.ArchivePath)
+					go startDownloadTask(m.msgChan, m.url, m.saveDir, m.saveFilename, m.selectedFormat, m.config.Browser, m.config.ArchivePath, m.playlistCount)
 					return m, tea.Batch(m.spinner.Tick, waitForMsg(m.msgChan))
 				}
 			}
@@ -401,14 +424,22 @@ func (m model) View() string {
 	case stateInfo:
 		sections = append(sections, lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render("✨ Info fetched:"))
 		sections = append(sections, infoStyle.Render(fmt.Sprintf("Title:    %s", m.videoTitle)))
-		minutes := int(m.videoDuration) / 60
-		seconds := int(m.videoDuration) % 60
-		sections = append(sections, infoStyle.Render(fmt.Sprintf("Duration: %02d:%02d", minutes, seconds)))
+		if m.playlistCount > 0 {
+			sections = append(sections, infoStyle.Render(fmt.Sprintf("Tracks:   %d", m.playlistCount)))
+		} else {
+			minutes := int(m.videoDuration) / 60
+			seconds := int(m.videoDuration) % 60
+			sections = append(sections, infoStyle.Render(fmt.Sprintf("Duration: %02d:%02d", minutes, seconds)))
+		}
 		sections = append(sections, helpStyle.Render("Press Enter to choose destination directory, Esc to quit."))
 
 	case statePickDir:
 		sections = append(sections, fmt.Sprintf("%s %s", boldStyle.Render("Browsing:"), m.filepicker.CurrentDirectory))
-		sections = append(sections, helpStyle.Render("Nav: ↑/k, ↓/j, Enter/→ (open) | Select: s (highlight), S (current) | n: New | Esc: Quit"))
+		dirHelp := "Nav: ↑/k, ↓/j, Enter/→ (open) | Select: s (highlight), S (current) | n: New | Esc: Quit"
+		if isPlaylistURL(m.url) {
+			dirHelp = "Press S to download all tracks into the current folder | n: New subfolder | Esc: Quit"
+		}
+		sections = append(sections, helpStyle.Render(dirHelp))
 		
 		chrome := 0
 		for _, s := range sections {
@@ -436,8 +467,10 @@ func (m model) View() string {
 
 	case stateDownloading:
 		status := fmt.Sprintf("%s Downloading and converting to %s...", m.spinner.View(), strings.ToUpper(m.selectedFormat))
-		if m.totalItems > 0 {
-			status += fmt.Sprintf(" (Song %d of %d)", m.currentItem, m.totalItems)
+		if m.totalItems > 0 && m.currentItem > 0 {
+			status += fmt.Sprintf(" (Track %d of %d)", m.currentItem, m.totalItems)
+		} else if m.downloadStatus != "" {
+			status = fmt.Sprintf("%s %s", m.spinner.View(), m.downloadStatus)
 		}
 		sections = append(sections, status)
 		sections = append(sections, infoStyle.Render(fmt.Sprintf("Target: %s", m.videoTitle)))

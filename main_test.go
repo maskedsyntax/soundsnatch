@@ -31,3 +31,24 @@ func TestCleanFilename(t *testing.T) {
 		t.Errorf("Clean filename failed: expected %s, got %s", expected, result)
 	}
 }
+
+func TestIsPlaylistURL(t *testing.T) {
+	if !isPlaylistURL("https://music.youtube.com/playlist?list=LM") {
+		t.Error("expected playlist URL")
+	}
+	if isPlaylistURL("https://www.youtube.com/watch?v=abc123") {
+		t.Error("expected single video URL")
+	}
+}
+
+func TestResolveBrowser(t *testing.T) {
+	if got := resolveBrowser(""); got != "" {
+		t.Errorf("expected empty browser, got %q", got)
+	}
+	if got := resolveBrowser("chrome"); got != "chrome" {
+		t.Errorf("expected chrome, got %q", got)
+	}
+	if got := resolveBrowser("firefox-dev"); got == "firefox-dev" {
+		t.Errorf("firefox-dev should resolve to a yt-dlp browser value, got %q", got)
+	}
+}

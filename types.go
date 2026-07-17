@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
@@ -37,10 +38,17 @@ var (
 	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	boldStyle    = lipgloss.NewStyle().Bold(true)
-	progressRe   = regexp.MustCompile(`(\d+(\.\d+)?)%`)
-	itemRe       = regexp.MustCompile(`\[download\] Downloading item (\d+) of (\d+)`)
-	urlRe        = regexp.MustCompile(`^https?://`)
+	progressRe        = regexp.MustCompile(`(\d+(\.\d+)?)%`)
+	itemRe            = regexp.MustCompile(`\[download\] Downloading item (\d+) of (\d+)`)
+	playlistTotalRe   = regexp.MustCompile(`Downloading (\d+) items of (\d+)`)
+	archiveSkipRe     = regexp.MustCompile(`has already been recorded in the archive`)
+	destinationRe     = regexp.MustCompile(`\[download\] Destination:`)
+	urlRe             = regexp.MustCompile(`^https?://`)
 )
+
+func isPlaylistURL(url string) bool {
+	return strings.Contains(url, "list=") || strings.Contains(url, "playlist")
+}
 
 type Config struct {
 	LastSaveDir   string `yaml:"last_save_dir"`
@@ -61,11 +69,14 @@ func (i formatItem) FilterValue() string { return i.label }
 type browserItem string
 
 func (i browserItem) Title() string       { return string(i) }
-func (i browserItem) Description() string { 
+func (i browserItem) Description() string {
 	if i == "none" {
 		return "Do not use browser cookies"
 	}
-	return "Extract cookies from " + string(i) 
+	if i == "firefox-dev" {
+		return "Extract cookies from Firefox Developer Edition"
+	}
+	return "Extract cookies from " + string(i)
 }
 func (i browserItem) FilterValue() string { return string(i) }
 
@@ -94,14 +105,16 @@ type model struct {
 	url           string
 	videoTitle    string
 	videoDuration float64
+	playlistCount int
 	saveDir       string
 	saveFilename  string
 	selectedFormat string
 
+	downloadStatus  string
 	downloadPercent float64
 	currentItem     int
 	totalItems      int
-	
+
 	err             error
 	doneMessage     string
 	lastWindowHeight int
@@ -112,8 +125,10 @@ type model struct {
 }
 
 type infoFetchedMsg struct {
-	title    string
-	duration float64
+	title         string
+	duration      float64
+	playlistCount int
+	entryCount    int
 }
 
 type searchResultsMsg []list.Item
@@ -122,6 +137,10 @@ type progressMsg struct {
 	pct     float64
 	current int
 	total   int
+}
+
+type statusMsg struct {
+	text string
 }
 
 type downloadDoneMsg struct {
